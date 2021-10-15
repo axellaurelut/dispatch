@@ -24,7 +24,6 @@ if (process.env.VUE_APP_SENTRY_ENABLED) {
   if (process.env.VUE_APP_SENTRY_DSN) {
     DSN = process.env.VUE_APP_SENTRY_DSN
   }
-
   Sentry.init({
     dsn: DSN,
     integrations: [new Integrations.Vue({ Vue, attachProps: true })],

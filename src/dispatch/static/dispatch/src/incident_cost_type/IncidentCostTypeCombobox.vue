@@ -1,20 +1,21 @@
 <template>
-  <v-autocomplete
-    v-model="plugin"
-    :loading="loading"
+  <v-combobox
     :items="items"
-    item-text="plugin.slug"
-    :search-input.sync="search"
-    hide-selected
     :label="label"
+    :loading="loading"
+    :search-input.sync="search"
+    @update:search-input="getFilteredData()"
+    deletable-chips
+    hide-selected
+    item-text="name"
     no-filter
-    return-object
+    v-model="incident_cost_type"
   >
     <template v-slot:no-data>
       <v-list-item>
         <v-list-item-content>
           <v-list-item-title>
-            No Plugins matching "
+            No cost types matching "
             <strong>{{ search }}</strong
             >"
           </v-list-item-title>
@@ -25,12 +26,12 @@
       <v-list-item-content>
         <v-list-item-title>
           <div>
-            {{ data.item.plugin.title }}
+            {{ data.item.name }}
           </div>
         </v-list-item-title>
         <v-list-item-subtitle>
           <div style="width: 200px" class="text-truncate">
-            {{ data.item.plugin.description }}
+            {{ data.item.description }}
           </div>
         </v-list-item-subtitle>
       </v-list-item-content>
@@ -42,32 +43,28 @@
         </v-list-item-content>
       </v-list-item>
     </template>
-  </v-autocomplete>
+  </v-combobox>
 </template>
 
 <script>
 import { cloneDeep, debounce } from "lodash"
 
-import PluginApi from "@/plugin/api"
+import IncidentCostTypeApi from "@/incident_cost_type/api"
+import SearchUtils from "@/search/utils"
 
 export default {
-  name: "PluginCombobox",
+  name: "IncidentCostTypeCombobox",
+
   props: {
     value: {
-      type: [Object],
-      default: null,
-    },
-    type: {
-      type: String,
-      default: null,
+      type: Object,
+      default: function () {
+        return {}
+      },
     },
     label: {
       type: String,
-      default: "Plugins",
-    },
-    project: {
-      type: [Object],
-      default: null,
+      default: "Cost Type",
     },
   },
   data() {
@@ -77,80 +74,60 @@ export default {
       more: false,
       numItems: 5,
       search: null,
-      plugin: null,
     }
   },
 
+  computed: {
+    incident_cost_type: {
+      get() {
+        return cloneDeep(this.value)
+      },
+      set(value) {
+        this.$emit("input", value)
+      },
+    },
+  },
+
   created() {
-    this.plugin = cloneDeep(this.value)
     this.fetchData()
   },
 
   methods: {
     loadMore() {
       this.numItems = this.numItems + 5
+      this.fetchData()
     },
     fetchData() {
       this.error = null
       this.loading = "error"
-      let filter = {
-        and: [
-          {
-            model: "PluginInstance",
-            field: "enabled",
-            op: "==",
-            value: "true",
-          },
-          {
-            model: "Project",
-            field: "name",
-            op: "==",
-            value: this.project.name,
-          },
-        ],
-      }
-
-      if (this.type) {
-        filter["and"].push({
-          model: "Plugin",
-          field: "type",
-          op: "==",
-          value: this.type,
-        })
-      }
 
       let filterOptions = {
         q: this.search,
-        sortBy: ["slug"],
+        sortBy: ["category"],
+        descending: [false],
         itemsPerPage: this.numItems,
-        filter: JSON.stringify(this.filter),
+        filters: {
+          cost_type: [{ model: "IncidentCostType", field: "editable", op: "==", value: "true" }],
+        },
       }
 
-      PluginApi.getAllInstances(filterOptions).then((response) => {
+      filterOptions = SearchUtils.createParametersFromTableOptions({ ...filterOptions })
+
+      IncidentCostTypeApi.getAll(filterOptions).then((response) => {
         this.items = response.data.items
         this.total = response.data.total
 
+        this.more = false
         if (this.items.length < this.total) {
           this.more = true
-        } else {
-          this.more = false
         }
 
         this.loading = false
       })
     },
-    getFilteredData: debounce(function (options) {
-      this.fetchData(options)
+    getFilteredData: debounce(function () {
+      this.fetchData()
     }, 500),
-  },
-
-  watch: {
-    search(val) {
-      val && val !== this.select && this.getFilteredData(val)
-    },
-    plugin(val) {
-      this.$emit("input", val)
-    },
   },
 }
 </script>

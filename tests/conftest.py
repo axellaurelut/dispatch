@@ -11,6 +11,7 @@ environ["DATABASE_HOSTNAME"] = "localhost"
 environ["DATABASE_NAME"] = "dispatch-test"
 environ["DISPATCH_HELP_EMAIL"] = "example@example.com"
 environ["DISPATCH_HELP_SLACK_CHANNEL"] = "help-me"
+environ["DISPATCH_ENCRYPTION_KEY"] = "test123"
 environ["DISPATCH_UI_URL"] = "https://example.com"
 environ["ENV"] = "pytest"
 environ["INCIDENT_STORAGE_FOLDER_ID"] = "XXX"
@@ -242,6 +243,15 @@ def ticket_plugin():
 
     register(TestTicketPlugin)
     return TestTicketPlugin
+
+
+@pytest.fixture
+def workflow_plugin():
+    from dispatch.plugins.base import register
+    from dispatch.plugins.dispatch_test.workflow import TestWorkflowPlugin
+
+    register(TestWorkflowPlugin)
+    return TestWorkflowPlugin
 
 
 @pytest.fixture
@@ -520,8 +530,13 @@ def plugin_instance(session):
 
 
 @pytest.fixture
-def workflow(session):
-    return WorkflowFactory(plugin_instance=PluginInstanceFactory())
+def workflow_plugin_instance(session, workflow_plugin):
+    return PluginInstanceFactory(plugin=PluginFactory(slug=workflow_plugin.slug))
+
+
+@pytest.fixture
+def workflow(session, workflow_plugin_instance):
+    return WorkflowFactory(plugin_instance=workflow_plugin_instance)
 
 
 @pytest.fixture

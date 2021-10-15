@@ -750,10 +750,14 @@ def incident_create_flow(*, organization_slug: str, incident_id: int, db_session
                 )
                 log.exception(e)
 
-    # we defer this setup until after resources have been created
-    for user_email in set(
-        [incident.commander.individual.email, incident.reporter.individual.email]
-    ):
+    # we defer this setup for all resolved incident roles until after resources have been created
+    roles = ["reporter", "commander", "liaison", "scribe"]
+    user_emails = [
+        resolve_attr(incident, f"{role}.individual.email")
+        for role in roles
+        if resolve_attr(incident, role)
+    ]
+    for user_email in user_emails:
         # we add the participant to the tactical group
         add_participant_to_tactical_group(user_email, incident, db_session)
 
@@ -793,6 +797,22 @@ def incident_create_flow(*, organization_slug: str, incident_id: int, db_session
         description="Incident notifications sent",
         incident_id=incident.id,
     )
+
+    # we page the incident commander based on incident priority
+    if incident.incident_priority.page_commander:
+        service_id = incident.commander.service.external_id
+        oncall_plugin = plugin_service.get_active_instance(
+            db_session=db_session, project_id=incident.project.id, plugin_type="oncall"
+        )
+        if oncall_plugin:
+            oncall_plugin.instance.page(
+                service_id=service_id,
+                incident_name=incident.name,
+                incident_title=incident.title,
+                incident_description=incident.description,
+            )
+    else:
+        log.warning("Incident commander not paged. No plugin of type oncall enabled.")
 
     # we send a message to the incident commander with tips on how to manage the incident
     send_incident_management_help_tips_message(incident, db_session)
@@ -1038,11 +1058,12 @@ def status_flow_dispatcher(
     elif current_status == IncidentStatus.stable:
         if previous_status == IncidentStatus.active:
             incident_stable_status_flow(incident=incident, db_session=db_session)
+            send_incident_report_reminder(incident, ReportTypes.tactical_report, db_session)
         elif previous_status == IncidentStatus.closed:
             incident_active_status_flow(incident=incident, db_session=db_session)
             incident_stable_status_flow(incident=incident, db_session=db_session)
             reactivate_incident_participants(incident=incident, db_session=db_session)
-        send_incident_report_reminder(incident, ReportTypes.tactical_report, db_session)
+            send_incident_report_reminder(incident, ReportTypes.tactical_report, db_session)
 
     # we currently have a closed incident
     elif current_status == IncidentStatus.closed:
@@ -1251,7 +1272,10 @@ def incident_engage_oncall_flow(
     if page == "Yes":
         # we page the oncall
         oncall_plugin.instance.page(
-            oncall_service_external_id, incident.name, incident.title, incident.description
+            service_id=oncall_service_external_id,
+            incident_name=incident.name,
+            incident_title=incident.title,
+            incident_description=incident.description,
         )
 
         event_service.log(
