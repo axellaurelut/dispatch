@@ -1,4 +1,5 @@
 from typing import List
+from pydantic import Field
 
 from dispatch.decorators import apply, counter, timer
 from dispatch.plugins.bases import StoragePlugin, TaskPlugin
@@ -18,8 +19,30 @@ from .drive import (
     remove_permission,
     add_domain_permission,
     add_reply,
+    mark_as_readonly,
 )
 from .task import get_task_activity
+
+
+class GoogleDriveConfiguration(GoogleConfiguration):
+    """Google drive configuration."""
+
+    root_id: str = Field(
+        title="Root Incident Storage FolderId",
+        description="This is the default folder for all incident data. Dispatch will create subfolders for each incident in this folder.",
+    )
+
+    open_on_close: bool = Field(
+        title="Open On Close",
+        default=False,
+        description="Controls the visibility of resources on incident close. If enabled Dispatch will make all resources visible to the entire workspace.",
+    )
+
+    read_only: bool = Field(
+        title="Readonly",
+        default=False,
+        description="The incident document will be marked as readonly on incident close. Participants will still be able to interact with the document but any other viewers will not.",
+    )
 
 
 @apply(timer, exclude=["__init__"])
@@ -34,7 +57,7 @@ class GoogleDriveStoragePlugin(StoragePlugin):
     author_url = "https://github.com/netflix/dispatch.git"
 
     def __init__(self):
-        self.configuration_schema = GoogleConfiguration
+        self.configuration_schema = GoogleDriveConfiguration
         self.scopes = ["https://www.googleapis.com/auth/drive"]
 
     def get(self, file_id: str, mime_type=None):
@@ -64,6 +87,11 @@ class GoogleDriveStoragePlugin(StoragePlugin):
         """Adds the domain permission to the folder."""
         client = get_service(self.configuration, "drive", "v3", self.scopes)
         add_domain_permission(client, folder_id, self.configuration.google_domain)
+
+    def mark_readonly(self, file_id: str):
+        """Adds the read only permission to the folder."""
+        client = get_service(self.configuration, "drive", "v3", self.scopes)
+        mark_as_readonly(client, file_id)
 
     def create_file(
         self,

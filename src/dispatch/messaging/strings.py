@@ -293,18 +293,36 @@ INCIDENT_NAME_WITH_ENGAGEMENT = {
     "title": "{{name}} Incident Notification",
     "title_link": "{{ticket_weblink}}",
     "text": INCIDENT_NOTIFICATION_PURPOSES_FYI,
-    "button_text": "Join Incident",
-    "button_value": "{{organization_slug}}-{{incident_id}}",
-    "button_action": ConversationButtonActions.invite_user,
+    "buttons": [
+        {
+            "button_text": "Subscribe",
+            "button_value": "{{organization_slug}}-{{incident_id}}",
+            "button_action": ConversationButtonActions.subscribe_user,
+        },
+        {
+            "button_text": "Join",
+            "button_value": "{{organization_slug}}-{{incident_id}}",
+            "button_action": ConversationButtonActions.invite_user,
+        },
+    ],
 }
 
 INCIDENT_NAME_WITH_ENGAGEMENT_NO_DESCRIPTION = {
     "title": "{{name}}",
     "title_link": "{{ticket_weblink}}",
     "text": "{{ignore}}",
-    "button_text": "{{button_text}}",
-    "button_value": "{{button_value}}",
-    "button_action": "{{button_action}}",
+    "buttons": [
+        {
+            "button_text": "Subscribe",
+            "button_value": "{{organization_slug}}-{{incident_id}}",
+            "button_action": ConversationButtonActions.subscribe_user,
+        },
+        {
+            "button_text": "Join",
+            "button_value": "{{organization_slug}}-{{incident_id}}",
+            "button_action": ConversationButtonActions.invite_user,
+        },
+    ],
 }
 
 INCIDENT_NAME = {
@@ -588,9 +606,13 @@ INCIDENT_CLOSED_RATING_FEEDBACK_NOTIFICATION = [
         "title": "{{name}} Incident - Rating and Feedback",
         "title_link": "{{ticket_weblink}}",
         "text": INCIDENT_CLOSED_RATING_FEEDBACK_DESCRIPTION,
-        "button_text": "Provide Feeback",
-        "button_value": "{{organization_slug}}-{{incident_id}}",
-        "button_action": ConversationButtonActions.provide_feedback,
+        "buttons": [
+            {
+                "button_text": "Provide Feedback",
+                "button_value": "{{organization_slug}}-{{incident_id}}",
+                "button_action": ConversationButtonActions.provide_feedback,
+            }
+        ],
     }
 ]
 
@@ -672,14 +694,12 @@ def render_message_template(message_template: List[dict], **kwargs):
         if d.get("text"):
             d["text"] = Template(d["text"]).render(**kwargs)
 
-        if d.get("button_text"):
-            d["button_text"] = Template(d["button_text"]).render(**kwargs)
-
-        if d.get("button_value"):
-            d["button_value"] = Template(d["button_value"]).render(**kwargs)
-
-        if d.get("button_action"):
-            d["button_action"] = Template(d["button_action"]).render(**kwargs)
+        # render a new button array given the template
+        if d.get("buttons"):
+            for button in d["buttons"]:
+                button["button_text"] = Template(button["button_text"]).render(**kwargs)
+                button["button_value"] = Template(button["button_value"]).render(**kwargs)
+                button["button_action"] = Template(button["button_action"]).render(**kwargs)
 
         if d.get("status_mapping"):
             d["text"] = d["status_mapping"][kwargs["status"]]

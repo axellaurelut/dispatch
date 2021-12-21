@@ -1,4 +1,4 @@
-import arrow
+import pytz
 import logging
 import datetime
 
@@ -96,7 +96,13 @@ def event_functions(event: EventEnvelope):
     event_mappings = {
         "member_joined_channel": [member_joined_channel],
         "member_left_channel": [member_left_channel],
-        "message": [after_hours, ban_threads_warning, message_tagging, message_monitor],
+        "message": [
+            increment_activity,
+            after_hours,
+            ban_threads_warning,
+            message_tagging,
+            message_monitor,
+        ],
         "message.groups": [],
         "message.im": [],
         "reaction_added": [handle_reaction_added_event],
@@ -111,6 +117,7 @@ async def handle_slack_event(*, config, client, event, background_tasks):
 
     if user_id and channel_id:
         db_session = get_organization_scope_from_channel_id(channel_id=channel_id)
+
         if not db_session:
             log.info(
                 f"Unable to determine organization associated with channel id. ChannelId: {channel_id}"
@@ -124,7 +131,6 @@ async def handle_slack_event(*, config, client, event, background_tasks):
         if conversation and dispatch_slack_service.is_user(config, user_id):
             # We resolve the user's email
             user_email = await dispatch_slack_service.get_user_email_async(client, user_id)
-
             # Dispatch event functions to be executed in the background
             for f in event_functions(event):
                 background_tasks.add_task(
@@ -186,9 +192,35 @@ def handle_reaction_added_event(
         )
 
 
+@slack_background_task
+def increment_activity(
+    config: SlackConversationConfiguration,
+    user_id: str,
+    user_email: str,
+    channel_id: str,
+    incident_id: int,
+    event: EventEnvelope = None,
+    db_session=None,
+    slack_client=None,
+):
+    # increment activity for user
+    participant = participant_service.get_by_incident_id_and_email(
+        db_session=db_session, incident_id=incident_id, email=user_email
+    )
+
+    # member join also creates a message but they aren't yet a participant
+    if participant:
+        if participant.activity:
+            participant.activity += 1
+        else:
+            participant.activity = 1
+
+        db_session.commit()
+
+
 def is_business_hours(commander_tz: str):
     """Determines if it's currently office hours where the incident commander is located."""
-    now = arrow.utcnow().to(commander_tz)
+    now = datetime.datetime.now(pytz.timezone(commander_tz))
     return now.weekday() not in [5, 6] and 9 <= now.hour < 17
 
 

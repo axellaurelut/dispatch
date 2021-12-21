@@ -12,13 +12,6 @@ import logging
 from datetime import datetime
 from typing import Any, List
 
-from dispatch.config import (
-    INCIDENT_RESOURCE_NOTIFICATIONS_GROUP,
-    INCIDENT_RESOURCE_TACTICAL_GROUP,
-    INCIDENT_STORAGE_FOLDER_ID,
-    INCIDENT_STORAGE_OPEN_ON_CLOSE,
-)
-
 from dispatch.enums import DocumentResourceTypes
 
 from dispatch.conference import service as conference_service
@@ -240,11 +233,14 @@ def create_participant_groups(
     )
 
     tactical_group.update(
-        {"resource_type": INCIDENT_RESOURCE_TACTICAL_GROUP, "resource_id": tactical_group["id"]}
+        {
+            "resource_type": f"{plugin.plugin.slug}-tactical-group",
+            "resource_id": tactical_group["id"],
+        }
     )
     notification_group.update(
         {
-            "resource_type": INCIDENT_RESOURCE_NOTIFICATIONS_GROUP,
+            "resource_type": f"{plugin.plugin.slug}-notification-group",
             "resource_id": notification_group["id"],
         }
     )
@@ -285,9 +281,8 @@ def create_incident_storage(
     plugin = plugin_service.get_active_instance(
         db_session=db_session, project_id=incident.project.id, plugin_type="storage"
     )
-    storage = plugin.instance.create_file(
-        INCIDENT_STORAGE_FOLDER_ID, incident.name, participant_group_emails
-    )
+    storage_root_id = plugin.configuration.root_id
+    storage = plugin.instance.create_file(storage_root_id, incident.name, participant_group_emails)
     storage.update({"resource_type": plugin.plugin.slug, "resource_id": storage["id"]})
     return storage
 
@@ -443,16 +438,17 @@ def add_participant_to_tactical_group(
 ):
     """Adds participant to the tactical group."""
     # we get the tactical group
-    tactical_group = group_service.get_by_incident_id_and_resource_type(
-        db_session=db_session,
-        incident_id=incident.id,
-        resource_type=INCIDENT_RESOURCE_TACTICAL_GROUP,
-    )
     plugin = plugin_service.get_active_instance(
         db_session=db_session, project_id=incident.project.id, plugin_type="participant-group"
     )
-    if plugin and tactical_group:
-        plugin.instance.add(tactical_group.email, [user_email])
+    if plugin:
+        tactical_group = group_service.get_by_incident_id_and_resource_type(
+            db_session=db_session,
+            incident_id=incident.id,
+            resource_type=f"{plugin.plugin.slug}-tactical-group",
+        )
+        if tactical_group:
+            plugin.instance.add(tactical_group.email, [user_email])
 
 
 def remove_participant_from_tactical_group(
@@ -460,16 +456,17 @@ def remove_participant_from_tactical_group(
 ):
     """Removes participant from the tactical group."""
     # we get the tactical group
-    tactical_group = group_service.get_by_incident_id_and_resource_type(
-        db_session=db_session,
-        incident_id=incident.id,
-        resource_type=INCIDENT_RESOURCE_TACTICAL_GROUP,
-    )
     plugin = plugin_service.get_active_instance(
         db_session=db_session, project_id=incident.project.id, plugin_type="participant-group"
     )
-    if plugin and tactical_group:
-        plugin.instance.remove(tactical_group.email, [user_email])
+    if plugin:
+        tactical_group = group_service.get_by_incident_id_and_resource_type(
+            db_session=db_session,
+            incident_id=incident.id,
+            resource_type=f"{plugin.plugin.slug}-tactical-group",
+        )
+        if tactical_group:
+            plugin.instance.remove(tactical_group.email, [user_email])
 
 
 @background_task
@@ -953,15 +950,20 @@ def incident_closed_status_flow(incident: Incident, db_session=None):
     if convo_plugin:
         convo_plugin.instance.archive(incident.conversation.channel_id)
 
-    if INCIDENT_STORAGE_OPEN_ON_CLOSE:
-        # storage for incidents with restricted visibility is never opened
-        if incident.visibility == Visibility.open:
-            # add organization wide permission
-            storage_plugin = plugin_service.get_active_instance(
-                db_session=db_session, project_id=incident.project.id, plugin_type="storage"
-            )
-            if storage_plugin:
-                storage_plugin.instance.open(incident.storage.resource_id)
+    # storage for incidents with restricted visibility is never opened
+    if incident.visibility == Visibility.open:
+        # add organization wide permission
+        storage_plugin = plugin_service.get_active_instance(
+            db_session=db_session, project_id=incident.project.id, plugin_type="storage"
+        )
+        if storage_plugin:
+            if storage_plugin.configuration.open_on_close:
+                # typically only broad access to the incident document itself is required.
+                storage_plugin.instance.open(incident.incident_document.resource_id)
+
+            if storage_plugin.configuration.read_only:
+                # unfortunately this can't be applied at the folder level so we just mark the incident doc as available.
+                storage_plugin.instance.mark_readonly(incident.incident_document.resource_id)
 
     # we send a direct message to the incident commander asking to review
     # the incident's information and to tag the incident if appropiate
@@ -1186,12 +1188,12 @@ def incident_assign_role_flow(
             assigner_contact_info = {
                 "email": assigner_email,
                 "fullname": "Unknown",
-                "weblink": None,
+                "weblink": "",
             }
             assignee_contact_info = {
                 "email": assignee_email,
                 "fullname": "Unknown",
-                "weblink": None,
+                "weblink": "",
             }
 
         if incident.status != IncidentStatus.closed:
@@ -1286,6 +1288,22 @@ def incident_engage_oncall_flow(
         )
 
     return oncall_participant_added.individual, oncall_service
+
+
+@background_task
+def incident_add_participant_to_tactical_group_flow(
+    user_email: str,
+    incident_id: Incident,
+    organization_slug: str,
+    db_session: SessionLocal,
+):
+    """Adds participant to the tactical group."""
+    # we get the tactical group
+    incident = incident_service.get(db_session=db_session, incident_id=incident_id)
+
+    add_participant_to_tactical_group(
+        db_session=db_session, incident=incident, user_email=user_email
+    )
 
 
 @background_task

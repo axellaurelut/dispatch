@@ -2,8 +2,8 @@ from typing import List, Optional
 from pydantic.error_wrappers import ErrorWrapper, ValidationError
 from sqlalchemy.sql.expression import true
 
-from dispatch.auth.models import DispatchUser, DispatchUserOrganization
 from dispatch.database.core import engine
+from dispatch.auth.models import DispatchUser, DispatchUserOrganization
 from dispatch.database.manage import init_schema
 from dispatch.enums import UserRoles
 from dispatch.exceptions import NotFoundError
@@ -106,9 +106,8 @@ def create(*, db_session, organization_in: OrganizationCreate) -> Organization:
     if organization_in.banner_color:
         organization.banner_color = organization_in.banner_color.as_hex()
 
-    db_session.add(organization)
-    db_session.commit()
-    init_schema(engine=engine, organization=organization)
+    # we let the new schema session create the organization
+    organization = init_schema(engine=engine, organization=organization)
     return organization
 
 

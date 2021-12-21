@@ -6,9 +6,6 @@ from datetime import datetime, date
 from schedule import every
 from sqlalchemy import func
 
-from dispatch.config import (
-    DISPATCH_HELP_EMAIL,
-)
 from dispatch.conversation.enums import ConversationButtonActions
 from dispatch.database.core import SessionLocal, resolve_attr
 from dispatch.decorators import scheduled_project_task
@@ -148,12 +145,21 @@ def daily_report(db_session: SessionLocal, project: Project):
                         "title": incident.title,
                         "type": incident.incident_type.name,
                         "type_description": incident.incident_type.description,
+                        "organization_slug": incident.project.organization.slug,
+                        "buttons": [],
                     }
 
                     if incident.status != IncidentStatus.closed:
-                        item.update(
+                        item["buttons"].append(
                             {
-                                "button_text": "Join Incident",
+                                "button_text": "Subscribe",
+                                "button_value": f"{incident.project.organization.slug}-{incident.id}",
+                                "button_action": f"{ConversationButtonActions.subscribe_user}-{incident.status}-{idx}",
+                            }
+                        )
+                        item["buttons"].append(
+                            {
+                                "button_text": "Join",
                                 "button_value": f"{incident.project.organization.slug}-{incident.id}",
                                 "button_action": f"{ConversationButtonActions.invite_user}-{incident.status}-{idx}",
                             }
@@ -164,8 +170,6 @@ def daily_report(db_session: SessionLocal, project: Project):
                     log.exception(e)
 
             notification_kwargs = {
-                "contact_fullname": DISPATCH_HELP_EMAIL,
-                "contact_weblink": DISPATCH_HELP_EMAIL,
                 "items_grouped": items_grouped,
                 "items_grouped_template": items_grouped_template,
             }

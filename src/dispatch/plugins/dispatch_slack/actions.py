@@ -109,6 +109,7 @@ async def handle_slack_action(*, config, client, request, background_tasks):
     """Handles slack action message."""
     # We resolve the user's email
     user_id = request["user"]["id"]
+
     user_email = await dispatch_slack_service.get_user_email_async(client, user_id)
 
     request["user"]["email"] = user_email
@@ -132,6 +133,7 @@ def block_action_functions(action: str):
     """Interprets the action and routes it to the appropriate function."""
     action_mappings = {
         ConversationButtonActions.invite_user: [add_user_to_conversation],
+        ConversationButtonActions.subscribe_user: [add_user_to_tactical_group],
         ConversationButtonActions.provide_feedback: [create_rating_feedback_modal],
         ConversationButtonActions.update_task_status: [update_task_status],
         ConversationButtonActions.monitor_link: [monitor_link],
@@ -187,7 +189,6 @@ def handle_block_action(
     config: SlackConversationConfiguration, action: dict, background_tasks: BackgroundTasks
 ):
     """Handles a standalone block action."""
-    # TODO (kglisson) align our use of action_ids and block_ids
     organization_slug = None
     if action.get("view"):
         view_data = action["view"]
@@ -202,20 +203,13 @@ def handle_block_action(
             organization_slug = button.organization_slug
             incident_id = button.incident_id
         except ValidationError:
-            # maintain support for old block actions that were created before organization's split
-            actions = action["actions"][0]["value"].split("-")
-            if len(actions) == 2:
-                organization_slug, incident_id = actions
-            else:
-                organization_slug = "default"
-                incident_id = actions[0]
+            organization_slug, incident_id = action["actions"][0]["value"].split("-")
 
         channel_id = action["channel"]["id"]
-        action_id = action["actions"][0]["block_id"]
+        action_id = action["actions"][0]["action_id"]
 
     user_id = action["user"]["id"]
     user_email = action["user"]["email"]
-
     for f in block_action_functions(action_id):
         background_tasks.add_task(
             f,
@@ -227,6 +221,30 @@ def handle_block_action(
             action=action,
             organization_slug=organization_slug,
         )
+
+
+@slack_background_task
+def add_user_to_tactical_group(
+    user_id: str,
+    user_email: str,
+    channel_id: str,
+    incident_id: int,
+    action: dict,
+    config: SlackConversationConfiguration = None,
+    db_session=None,
+    slack_client=None,
+):
+    """Adds a user to the incident tactical group."""
+    incident = incident_service.get(db_session=db_session, incident_id=incident_id)
+    if not incident:
+        message = "Sorry, we cannot add you to this incident. It does not exist."
+        dispatch_slack_service.send_ephemeral_message(slack_client, channel_id, user_id, message)
+    else:
+        incident_flows.add_participant_to_tactical_group(
+            user_email=user_email, incident=incident, db_session=db_session
+        )
+        message = f"Success! We've subscribed you to incident {incident.name}. You will receive all tactical reports about this incident."
+        dispatch_slack_service.send_ephemeral_message(slack_client, channel_id, user_id, message)
 
 
 @slack_background_task

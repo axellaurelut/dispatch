@@ -1,5 +1,5 @@
 from datetime import datetime
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import List, Optional
 
 from pydantic import validator
@@ -17,11 +17,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy_utils import TSVectorType
-
-from dispatch.config import (
-    INCIDENT_RESOURCE_NOTIFICATIONS_GROUP,
-    INCIDENT_RESOURCE_TACTICAL_GROUP,
-)
 
 from dispatch.enums import DocumentResourceTypes
 from dispatch.conference.models import ConferenceRead
@@ -183,14 +178,18 @@ class Incident(Base, TimeStampMixin, ProjectMixin):
     def tactical_group(self):
         if self.groups:
             for g in self.groups:
-                if g.resource_type == INCIDENT_RESOURCE_TACTICAL_GROUP:
+                # this currently relies on there being only one tactical group per incident
+                # this is not enforced and is only by convention
+                if g.resource_type.endswith("tactical-group"):
                     return g
 
     @hybrid_property
     def notifications_group(self):
         if self.groups:
             for g in self.groups:
-                if g.resource_type == INCIDENT_RESOURCE_NOTIFICATIONS_GROUP:
+                # this currently relies on there being only one notification group per incident
+                # this is not enforced and is only by convention
+                if g.resource_type.endswith("notification-group"):
                     return g
 
     @hybrid_property
@@ -362,40 +361,58 @@ class IncidentUpdate(IncidentBase):
     terms: Optional[List[TermRead]] = []
     incident_costs: Optional[List[IncidentCostUpdate]] = []
 
+    @validator("tags")
+    def find_exclusive(cls, v):
+        if v:
+            exclusive_tags = defaultdict(list)
+            for t in v:
+                if t.tag_type.exclusive:
+                    exclusive_tags[t.tag_type.id].append(t)
 
-class IncidentRead(IncidentBase):
+            for v in exclusive_tags.values():
+                if len(v) > 1:
+                    raise ValueError(
+                        f"Found multiple exclusive tags. Please ensure that only one tag of a given type is applied. Tags: {','.join([t.name for t in v])}"
+                    )
+        return v
+
+
+class IncidentReadMinimal(IncidentBase):
     id: PrimaryKey
+    reporter: Optional[ParticipantRead]
+    commander: Optional[ParticipantRead]
     name: Optional[NameStr]
     primary_team: Optional[str]
     primary_location: Optional[str]
-    reporter: Optional[ParticipantRead]
-    commander: Optional[ParticipantRead]
-    last_tactical_report: Optional[ReportRead]
-    last_executive_report: Optional[ReportRead]
     incident_priority: IncidentPriorityRead
     incident_type: IncidentTypeRead
+    total_cost: Optional[float]
+    project: ProjectRead
+    tags: Optional[List[TagRead]] = []
+    duplicates: Optional[List[IncidentReadNested]] = []
+    created_at: Optional[datetime] = None
+    reported_at: Optional[datetime] = None
+    stable_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    incident_costs: Optional[List[IncidentCostRead]] = []
+
+
+class IncidentRead(IncidentReadMinimal):
+    last_tactical_report: Optional[ReportRead]
+    last_executive_report: Optional[ReportRead]
     participants: Optional[List[ParticipantRead]] = []
     workflow_instances: Optional[List[WorkflowInstanceRead]] = []
     storage: Optional[StorageRead] = None
     ticket: Optional[TicketRead] = None
     documents: Optional[List[DocumentRead]] = []
-    tags: Optional[List[TagRead]] = []
     terms: Optional[List[TermRead]] = []
     conference: Optional[ConferenceRead] = None
     conversation: Optional[ConversationRead] = None
     events: Optional[List[EventRead]] = []
-    created_at: Optional[datetime] = None
-    reported_at: Optional[datetime] = None
-    duplicates: Optional[List[IncidentReadNested]] = []
-    stable_at: Optional[datetime] = None
-    closed_at: Optional[datetime] = None
-    incident_costs: Optional[List[IncidentCostRead]] = []
-    total_cost: Optional[float]
-    project: ProjectRead
 
 
 class IncidentPagination(DispatchBase):
     total: int
     itemsPerPage: int
     page: int
-    items: List[IncidentRead] = []
+    items: List[IncidentReadMinimal] = []

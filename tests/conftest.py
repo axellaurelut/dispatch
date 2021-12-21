@@ -9,12 +9,10 @@ from starlette.config import environ
 environ["DATABASE_CREDENTIALS"] = "postgres:dispatch"
 environ["DATABASE_HOSTNAME"] = "localhost"
 environ["DATABASE_NAME"] = "dispatch-test"
-environ["DISPATCH_HELP_EMAIL"] = "example@example.com"
 environ["DISPATCH_HELP_SLACK_CHANNEL"] = "help-me"
 environ["DISPATCH_ENCRYPTION_KEY"] = "test123"
 environ["DISPATCH_UI_URL"] = "https://example.com"
 environ["ENV"] = "pytest"
-environ["INCIDENT_STORAGE_FOLDER_ID"] = "XXX"
 environ["JWKS_URL"] = "example.com"
 environ["DISPATCH_JWT_SECRET"] = "test123"
 environ["METRIC_PROVIDERS"] = ""  # TODO move this to the default

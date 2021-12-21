@@ -232,25 +232,27 @@ def default_notification(items: list):
                 block.update({"elements": [{"type": "mrkdwn", "text": format_default_text(item)}]})
             else:
                 block.update({"text": {"type": "plain_text", "text": format_default_text(item)}})
+            blocks.append(block)
         else:
             block = {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": format_default_text(item)},
             }
+            blocks.append(block)
 
-        if item.get("button_text") and item.get("button_value"):
-            block.update(
-                {
-                    "block_id": item["button_action"],
-                    "accessory": {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": item["button_text"]},
-                        "value": item["button_value"],
-                    },
-                }
-            )
-
-        blocks.append(block)
+        if item.get("buttons"):
+            block = {"type": "actions", "elements": []}
+            for button in item["buttons"]:
+                if button.get("button_text") and button.get("button_value"):
+                    block["elements"].append(
+                        {
+                            "action_id": button["button_action"],
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": button["button_text"]},
+                            "value": button["button_value"],
+                        }
+                    )
+            blocks.append(block)
 
     return blocks
 
